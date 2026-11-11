@@ -47,7 +47,7 @@
       id: String(d.id), url: d.url, channel: d.channel, ts: d.createTime || idTs(d.id),
       views: d.views, likes: d.likes, comments_count: d.comments_count, shares: d.shares, saves: d.saves, duration: d.duration,
       caption: (d.caption || "").trim(), hashtags: d.hashtags || [], music: d.music || "", original_sound: !!d.original_sound,
-      is_photo: !!d.is_photo, pinned: !!d.pinned, paid_flags: d.paid_flags || [], shop: !!d.shop, mentions: d.mentions || [],
+      is_photo: !!d.is_photo, pinned: !!d.pinned, pinned_api: !!d.pinned, paid_flags: d.paid_flags || [], shop: !!d.shop, mentions: d.mentions || [],
       labels: d.labels || [], kw: d.kw || [], loc: d.loc || "",
       transcript: cleanVtt(d.vtt),
       comments: cm.map(c => ({ text: c.text.trim(), likes: c.likes || 0, replies: c.replies || 0, by: c.by || "", biz: !!c.biz,
@@ -75,6 +75,10 @@
 
   /* Gộp danh sách clip đọc từ trang kênh (chỉ view + ngày) vào dữ liệu đang có */
   function mergeLinks(vids, links, handle) {
+    const ids = links.map(l => l.url.replace(/\/$/, "").split("/").pop());
+    const after = ids.slice(3, 12).map(idTs).filter(Boolean), ref = after.length ? Math.min(...after) : 0;
+    const pinned = new Set(ids.slice(0, 3).filter(id => ref && idTs(id) && idTs(id) < ref - 14 * 86400));
+    for (const id of ids) if (vids[id]) vids[id].pinned = pinned.has(id) || (!vids[id].lite && vids[id].pinned_api) || false;
     for (const l of links) {
       const id = l.url.replace(/\/$/, "").split("/").pop();
       const gv = kNum(l.views);
@@ -86,7 +90,7 @@
         }
         continue;
       }
-      vids[id] = snap({ ...(vids[id] || {}), id, url: l.url, channel: handle, ts: idTs(id), views: gv, lite: true, comments: [], hashtags: [] }, gv);
+      vids[id] = snap({ ...(vids[id] || {}), id, url: l.url, channel: handle, ts: idTs(id), views: gv, lite: true, comments: [], hashtags: [], pinned: pinned.has(id) }, gv);
     }
     return vids;
   }
@@ -245,27 +249,28 @@
       out.sort(order ? (a, b) => order.indexOf(a.key) - order.indexOf(b.key) : (a, b) => b.med_x - a.med_x);
       return out;
     }
+    const baseT = base.filter(v => !v.pinned);   // clip ghim là clip cũ treo đầu kênh: không tính vào dòng thời gian
     const durKey = v => v.is_photo ? ["Ảnh (photo)"] : v.duration ? DURS.filter(([a, b]) => a <= v.duration && v.duration < b).map(d => d[2]) : [];
     const tables = {
       kind: group(v => [v.kind], ["ORGANIC", "PAID", "NGHI ADS"], 1, rows.filter(v => !v.isNew)),
       duration: group(durKey, DURS.map(d => d[2]).concat(["Ảnh (photo)"])),
-      weekday: group(v => (dt(v) ? [WEEKDAY[wkIdx(dt(v))]] : []), WEEKDAY),
-      hour: group(v => (dt(v) ? HOURS.filter(([a, b]) => a <= dt(v).getHours() && dt(v).getHours() < b).map(h => h[2]) : []), HOURS.map(h => h[2])),
+      weekday: group(v => (dt(v) ? [WEEKDAY[wkIdx(dt(v))]] : []), WEEKDAY, 1, baseT),
+      hour: group(v => (dt(v) ? HOURS.filter(([a, b]) => a <= dt(v).getHours() && dt(v).getHours() < b).map(h => h[2]) : []), HOURS.map(h => h[2]), 1, baseT),
       sound: group(v => (v.lite ? [] : [v.original_sound ? "Âm thanh gốc" : "Nhạc / sound có sẵn"])),
       hashtag: group(v => [...new Set((v.hashtags || []).map(h => "#" + h.toLowerCase()))], null, 2).slice(0, 25),
       topic: group(v => [...new Set(v.labels || [])], null, 2).slice(0, 12),
       keyword: group(v => [...new Set((v.kw || []).map(x => x.toLowerCase()))], null, 2).slice(0, 20),
-      month: group(v => (dt(v) ? [dt(v).toISOString().slice(0, 7)] : [])).sort((a, b) => (a.key < b.key ? -1 : 1)),
+      month: group(v => (dt(v) ? [dt(v).toISOString().slice(0, 7)] : []), null, 1, baseT).sort((a, b) => (a.key < b.key ? -1 : 1)),
     };
     tables.heat = {
       hours: HOURS.map(h => h[2]), organic: baseOrganic,
       rows: WEEKDAY.map((day, di) => ({ day, cells: HOURS.map(([a, b]) => {
-        const vs = base.filter(v => dt(v) && wkIdx(dt(v)) === di && a <= dt(v).getHours() && dt(v).getHours() < b);
+        const vs = baseT.filter(v => dt(v) && wkIdx(dt(v)) === di && a <= dt(v).getHours() && dt(v).getHours() < b);
         return { n: vs.length, med: median(vs.map(x => x.views)), x: median(vs.map(x => x.x_med)) };
       }) })),
     };
     const bench = shareBench(followers);
-    const ts = rows.map(v => v.ts).filter(Boolean), span = ts.length > 1 ? (Math.max(...ts) - Math.min(...ts)) / 86400 : 0;
+    const tl = rows.filter(v => !v.pinned), ts = tl.map(v => v.ts).filter(Boolean), span = ts.length > 1 ? (Math.max(...ts) - Math.min(...ts)) / 86400 : 0;
     const views = rows.map(v => v.views);
     const summary = {
       n: rows.length, base_n: n, base_organic: baseOrganic, med_views: med,
@@ -275,7 +280,7 @@
       share_bench: bench, med_cmt: median(base.filter(v => v.cmt_r != null).map(v => v.cmt_r)),
       is_ad_flag: rows.filter(v => v.is_ad_flag).length,
       first: ts.length ? Math.min(...ts) : null, last: ts.length ? Math.max(...ts) : null,
-      per_week: span >= 7 ? Math.round(rows.length / (span / 7) * 10) / 10 : null,
+      per_week: span >= 7 ? Math.round(tl.length / (span / 7) * 10) / 10 : null, pinned: rows.filter(v => v.pinned).length,
       viral: viral.size, win: [...win].filter(id => !viral.has(id)).length, flop: flop.size,
       new: rows.filter(v => v.isNew).length, organic: rows.filter(v => v.kind === "ORGANIC").length,
       paid: rows.filter(v => v.kind === "PAID").length, suspect: rows.filter(v => v.kind === "NGHI ADS").length,
@@ -288,9 +293,13 @@
   /* ---------- lọc comment khi xuất ---------- */
   const norm = t => String(t || "").replace(/@\S+/g, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
   const isNoise = t => { const n = norm(t); return !n || /^((ha|he|hi|hj|hihi|kk|k|z|kaka|keke)+\s*)+$/.test(n); };
+  // ký tự vô hình / ô trống mà spam hay dùng (braille trống, hangul filler, zero-width…)
+  const INVIS = /[\u2800\u3164\uFFA0\u115F\u1160\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\u00AD\u034F\u17B4\u17B5\u180E]/g;
+  const clean = t => { t = String(t || "").replace(INVIS, " ").replace(/\s+/g, " ").trim(); return t.length > 300 ? t.slice(0, 300) + "…" : t; };
   function pickComments(cm, cap) {
     const out = [], seen = new Map(), short = new Map(); let dropped = 0;
-    for (const c0 of cm || []) {
+    cm = (cm || []).map(c => ({ ...c, text: clean(c.text), reply_list: (c.reply_list || []).map(r => ({ ...r, text: clean(r.text) })) }));
+    for (const c0 of cm) {
       const k = norm(c0.text);
       if (isNoise(c0.text)) { dropped++; continue; }
       if (k.split(" ").length <= 2 && !((c0.reply_list || []).length || c0.replies)) { short.set(k, (short.get(k) || 0) + 1); continue; }
@@ -322,6 +331,8 @@
       `- Bio: ${(meta.bio || "(trống)").replace(/\n/g, " / ")}${meta.link ? " · link: " + meta.link : ""}`,
       `- Follower ${n_(meta.followers)} · Tổng tim ${n_(meta.hearts)} · Kênh có ${n_(meta.videos)} clip · có view + ngày đăng của ${rows.length} clip · soi sâu (chỉ số đủ, transcript, comment) ${s.deep || 0} clip đại diện`,
       ...(ranged ? [`- **Khoảng ngày phân tích: ${rangeLabel(range)}** — chỉ xét clip đăng trong khoảng này; mức chuẩn ×TV, WIN/FLOP/VIRAL đều tính trong khoảng này, không phải toàn kênh.`] : []),
+      ...(s.pinned ? [`- ${s.pinned} clip ghim (clip cũ treo đầu kênh) có nhãn như thường nhưng không tính vào giai đoạn, tần suất, bảng theo tháng / thứ / giờ.`] : []),
+      ...(!ranged && meta.videos && rows.length < meta.videos * 0.6 ? [`- ⚠ Mới đọc được ${rows.length}/${n_(meta.videos)} clip của kênh (TikTok chỉ cho tải tới đó). Kết luận chỉ đúng cho giai đoạn bên dưới, không phải cả kênh.`] : []),
       `- Giai đoạn: ${date_(s.first)} → ${date_(s.last)}${s.per_week ? ` · đăng trung bình ${String(s.per_week).replace(".", ",")} clip/tuần` : ""}`,
       `- View: trung vị ${n_(s.med_views)} · trung bình ${n_(s.mean_views)} · cao nhất ${n_(s.max_views)} · thấp nhất ${n_(s.min_views)}`,
       `- Trung vị (clip đã soi sâu): tương tác/view ${p_(s.med_er)} · share/view ${p_(s.med_share, 2)} · save/view ${p_(s.med_save, 2)} · comment/view ${p_(s.med_cmt, 2)}`,
