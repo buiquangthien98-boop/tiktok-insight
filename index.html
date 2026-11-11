@@ -161,6 +161,15 @@ td.hk .why{font-size:11.5px;color:var(--warn);margin-top:3px;line-height:1.35}
 .ai-body.busy::after{content:"▍";color:var(--accent);animation:blink 1s steps(2) infinite}
 @keyframes blink{50%{opacity:0}}
 @media (max-width:600px){.ai.empty-ai{flex-direction:column;align-items:flex-start}}
+.ch{position:relative}
+.ch .ck{display:none;position:absolute;top:12px;right:12px;width:18px;height:18px;border-radius:6px;border:1.5px solid var(--faint);background:var(--card)}
+.chs.manage .ch .ck{display:block}
+.chs.manage .ch{user-select:none}
+.ch.sel{border-color:var(--flop);background:var(--flop-soft)}
+.ch.sel .ck{background:var(--flop);border-color:var(--flop)}
+.ch.sel .ck::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+#chbar{gap:12px;align-items:center}
+.btn.danger{background:var(--flop);color:#fff;border-color:var(--flop)}.btn.danger:disabled{opacity:.4;cursor:default}
 .modal{position:fixed;inset:0;background:rgba(10,8,16,.35);display:none;align-items:center;justify-content:center;padding:20px;z-index:5}
 .modal.show{display:flex}
 .mbox{width:min(480px,100%);padding:24px}
@@ -205,7 +214,7 @@ footer{margin-top:48px;color:var(--faint);font-size:12.5px;line-height:1.6}
 
   <div id="job"></div>
 
-  <div class="sec"><h2>Kênh đã quét</h2><span class="hint" id="chcount"></span></div>
+  <div class="sec"><h2>Kênh đã quét</h2><div class="row" id="chbar"><span class="hint" id="chcount"></span></div></div>
   <div class="chs" id="chs"></div>
   <div id="det"></div>
 
@@ -329,6 +338,7 @@ footer{margin-top:48px;color:var(--faint);font-size:12.5px;line-height:1.6}
         <dt>Khung báo “Không kết nối được trang TikTok Insight”</dt><dd>Tab TikTok Insight đã bị đóng. Mở lại trang này, bấm Mở kênh, rồi bấm ⚡ trên tab mới.</dd>
         <dt>Dùng trên điện thoại được không?</dt><dd>Chưa. Nút ⚡ cần trình duyệt máy tính (Chrome, Safari, Edge, Arc đều được).</dd>
         <dt>Dữ liệu nằm ở đâu?</dt><dd>Trong trình duyệt của bạn, không ở máy chủ nào. Đổi máy hoặc xoá dữ liệu trình duyệt là mất, nên xuất file .md những kênh quan trọng.</dd>
+        <dt>Xoá bớt kênh đã quét</dt><dd>Bấm <b>Quản lý</b> cạnh mục Kênh đã quét, tick các kênh muốn bỏ, bấm Xoá. Xoá là mất cả lịch sử tái khám và báo cáo AI của kênh đó.</dd>
       </dl>
     </div>
   </div>
@@ -466,8 +476,9 @@ function renderJob(){
 async function loadChannels(){
   const all=await DB.all();
   const cs=all.map(r=>{const fv=TTI.applyMarks(TTI.filterRange(r.vids,range),r.marks),a=TTI.analyze(fv,r.meta.followers);return{handle:r.handle,meta:r.meta,n:Object.keys(fv).length,s:a.summary}}).sort((a,b)=>String(b.meta.scanned||"").localeCompare(String(a.meta.scanned||"")));
-  $("chcount").textContent=cs.length?cs.length+" kênh":"";
-  $("chs").innerHTML=cs.length?cs.map(c=>`<div class="card ch ${c.handle===cur?"on":""}" onclick="loadDetail('${esc(c.handle)}')">
+  CHS=cs.map(c=>c.handle); MSEL.forEach(h=>{if(!CHS.includes(h))MSEL.delete(h)}); renderChBar();
+  $("chs").classList.toggle("manage",MANAGE);
+  $("chs").innerHTML=cs.length?cs.map(c=>`<div class="card ch ${c.handle===cur&&!MANAGE?"on":""} ${MSEL.has(c.handle)?"sel":""}" data-h="${esc(c.handle)}" onclick="${MANAGE?`toggleSel('${esc(c.handle)}')`:`loadDetail('${esc(c.handle)}')`}"><i class="ck"></i>
       <b>${esc(c.meta.nickname||c.handle)}</b><div class="h">@${esc(c.handle)} · ${fmt(c.meta.followers)} follower</div>
       <div class="m"><span><b>${c.n}</b>${ranged()?" clip · "+esc(TTI.rangeLabel(range)):"/"+(c.meta.videos??"?")+" clip"} · soi sâu ${c.s.deep??0}</span><span>TV <b>${fmt(c.s.med_views)}</b></span>
       <span>${c.s.viral?`<b style="color:var(--win)">${c.s.viral}</b> viral · `:""}<b style="color:var(--win)">${c.s.win??0}</b> win · <b style="color:var(--flop)">${c.s.flop??0}</b> flop</span></div>
@@ -567,6 +578,26 @@ async function saveMarks(){
   const both=P.filter(x=>O.includes(x)); if(both.length){$("kmsg").textContent=both.length+" link nằm ở cả hai ô, chọn một bên thôi.";return}
   await queue(async()=>{const r=await DB.get(cur);r.marks={};P.forEach(i=>r.marks[i]="paid");O.forEach(i=>r.marks[i]="organic");await DB.put(r)});
   closeMarks();toast(`Đã lưu: ${P.length} clip ads · ${O.length} clip organic`);await loadChannels();loadDetail(cur,true)}
+
+
+/* ---------- quản lý kênh đã quét ---------- */
+let MANAGE=false, CHS=[]; const MSEL=new Set();
+function renderChBar(){
+  const n=CHS.length;
+  $("chbar").innerHTML=!n?"":MANAGE
+    ?`<span class="hint">Đã chọn ${MSEL.size}/${n}</span><button class="link" onclick="selAll()">${MSEL.size===n?"Bỏ chọn":"Chọn tất cả"}</button><button class="btn danger" ${MSEL.size?"":"disabled"} onclick="delSel()">Xoá ${MSEL.size||""} kênh</button><button class="btn" onclick="setManage(false)">Xong</button>`
+    :`<span class="hint">${n} kênh</span><button class="link" onclick="setManage(true)">Quản lý</button>`;
+}
+function setManage(on){MANAGE=on;MSEL.clear();loadChannels()}
+function toggleSel(h){MSEL.has(h)?MSEL.delete(h):MSEL.add(h);document.querySelectorAll(".ch").forEach(e=>e.classList.toggle("sel",MSEL.has(e.dataset.h)));renderChBar()}
+function selAll(){if(MSEL.size===CHS.length)MSEL.clear();else CHS.forEach(h=>MSEL.add(h));document.querySelectorAll(".ch").forEach(e=>e.classList.toggle("sel",MSEL.has(e.dataset.h)));renderChBar()}
+async function delSel(){
+  const hs=[...MSEL]; if(!hs.length)return;
+  if(!confirm(`Xoá dữ liệu đã quét của ${hs.length} kênh: ${hs.map(h=>"@"+h).join(", ")}?\n\nGồm số liệu, lịch sử tái khám và báo cáo AI. Không khôi phục được.`))return;
+  await queue(async()=>{for(const h of hs)await DB.del(h)});
+  if(hs.includes(cur)){cur=null;detail=null;$("det").innerHTML=""}
+  toast(`Đã xoá ${hs.length} kênh`); MANAGE=false; MSEL.clear(); await loadChannels();
+}
 
 /* ---------- tái khám ---------- */
 function fgrow(m){const h=m.fhist||[];if(h.length<2)return"";const a=h[0],b=h[h.length-1],d=b[1]-a[1];
