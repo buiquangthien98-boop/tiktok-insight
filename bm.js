@@ -1,0 +1,189 @@
+(function () {
+  /* TikTok Insight · nút ⚡ — chạy trên tab TikTok, đọc kênh rồi gửi dữ liệu về tab web.
+     Địa chỉ trang web và tên miền TikTok được trang web điền vào khi tạo nút. */
+  var APP = '%%APP%%', HOST = new RegExp('%%HOST%%');
+  if (!HOST.test(location.hostname)) { alert('TikTok Insight: mở trang kênh TikTok (tiktok.com/@tenkenh) rồi bấm lại nút ⚡.'); return; }
+  if (window.__tti && window.__tti.running) { window.__tti.show(); return; }
+  var S = window.__tti = { running: true, stop: false };
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var N = function (x) { return x == null || x === '' ? null : Number(x); };
+
+  /* ---------- khung tiến độ trên trang TikTok ---------- */
+  var box = document.createElement('div');
+  box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;width:300px;background:#16151a;color:#f2f1f5;' +
+    'font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif;border-radius:14px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)';
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>⚡ TikTok Insight</b>' +
+    '<button id="tti-x" style="background:#2a2830;color:#f2f1f5;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit">Dừng</button></div>' +
+    '<div id="tti-m" style="color:#c9c6d2">Đang chuẩn bị…</div>' +
+    '<div style="height:5px;background:#2a2830;border-radius:9px;margin-top:10px;overflow:hidden"><i id="tti-b" style="display:block;height:100%;width:0;background:#9a74ff;transition:width .3s"></i></div>';
+  document.body.appendChild(box);
+  var $m = box.querySelector('#tti-m'), $b = box.querySelector('#tti-b');
+  box.querySelector('#tti-x').onclick = function () { S.stop = true; say('Đang dừng…'); };
+  S.show = function () { box.style.display = 'block'; };
+  function say(t, p) { $m.textContent = t; if (p != null) $b.style.width = Math.round(p * 100) + '%'; }
+  function done(t) { S.running = false; say(t, 1); var b = box.querySelector('#tti-x'); b.textContent = 'Đóng'; b.onclick = function () { box.remove(); }; }
+
+  /* ---------- kết nối với tab web ---------- */
+  var target = window.opener && !window.opener.closed ? window.opener : null;
+  if (!target) target = window.open(APP + '/#from-tiktok', 'tikinsight');
+  if (!target) { done('Trình duyệt chặn cửa sổ bật lên. Cho phép popup cho tiktok.com rồi bấm lại ⚡.'); return; }
+  var acked = false, waiters = [];
+  function send(m) { try { target.postMessage(m, APP); } catch (e) {} }
+  window.addEventListener('message', function (e) {
+    if (e.origin !== APP || !e.data) return;
+    if (e.data.type === 'ack') { acked = true; S.from = +e.data.from || 0; }
+    waiters.slice().forEach(function (w) { if (w.type === e.data.type) { waiters.splice(waiters.indexOf(w), 1); w.res(e.data); } });
+  });
+  function waitFor(type, ms) { return new Promise(function (res) { waiters.push({ type: type, res: res }); setTimeout(function () { res(null); }, ms); }); }
+
+  /* ---------- đọc 1 clip bằng fetch (không mở trang, không phát video) ---------- */
+  var O = { pages: 10, repTop: 15, repMax: 20 };
+  function pick(txt) {
+    var s = (JSON.parse(txt).__DEFAULT_SCOPE__ || {})['webapp.video-detail'] || {};
+    return { it: s.itemInfo && s.itemInfo.itemStruct, code: s.statusCode };
+  }
+  async function collect(url) {
+    var path = new URL(url, location.origin).pathname, wantId = (path.match(/\/(?:video|photo)\/(\d+)/) || [])[1];
+    var it = null, code, why = '';
+    if (location.pathname === path) { try { var p0 = pick(document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__').textContent); it = p0.it; } catch (e) {} }
+    for (var k = 0; k < 2 && !(it && String(it.id) === wantId); k++) {
+      try {
+        var r = await fetch(location.origin + path, { credentials: 'include' });
+        if (r.status === 403 || r.status === 429) return { blocked: true };
+        var html = await r.text();
+        var m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+        if (m) { var p1 = pick(m[1]); it = p1.it; code = p1.code; } else why = 'trang trả ' + Math.round(html.length / 1000) + 'KB';
+      } catch (e) { why = String(e); }
+      if (!it) await sleep(2000);
+    }
+    if (!it) return { error: 'Không đọc được clip' + (code ? ' (mã ' + code + ')' : why ? ' (' + why + ')' : '') };
+    var id = String(it.id || wantId), comments = [], cursor = 0;
+    for (var pg = 0; pg < O.pages; pg++) {
+      var d = await fetch(location.origin + '/api/comment/list/?aid=1988&aweme_id=' + id + '&count=50&cursor=' + cursor, { credentials: 'include' })
+        .then(function (x) { return x.json(); }).catch(function () { return {}; });
+      (d.comments || []).forEach(function (c) { var t = (c.text || '').replace(/\n/g, ' ').trim(); if (t) comments.push({ cid: c.cid, text: t, likes: c.digg_count || 0, replies: c.reply_comment_total || 0, by: (c.user && c.user.unique_id) || '', biz: !!(c.user && c.user.enterprise_verify_reason) }); });
+      if (!d.has_more) break; cursor = d.cursor || cursor + 50; await sleep(300);
+    }
+    var authorId = it.author && it.author.id;
+    var withRep = comments.filter(function (c) { return c.replies > 0 && c.cid; }).sort(function (a, b) { return b.likes - a.likes; }).slice(0, O.repTop);
+    for (var i = 0; i < withRep.length; i++) {
+      var c = withRep[i];
+      var rr = await fetch(location.origin + '/api/comment/list/reply/?aid=1988&item_id=' + id + '&comment_id=' + c.cid + '&count=' + O.repMax + '&cursor=0', { credentials: 'include' })
+        .then(function (x) { return x.json(); }).catch(function () { return {}; });
+      c.reply_list = (rr.comments || []).map(function (x) {
+        return { text: (x.text || '').replace(/\n/g, ' ').trim(), likes: x.digg_count || 0, by_creator: !!(x.user && authorId && String(x.user.uid) === String(authorId)), by: (x.user && x.user.unique_id) || '', biz: !!(x.user && x.user.enterprise_verify_reason) };
+      }).filter(function (x) { return x.text; }).sort(function (a, b) { return b.likes - a.likes; });
+      await sleep(150);
+    }
+    var st = it.statsV2 || it.stats || {}, vtt = '', subs = (it.video && it.video.subtitleInfos) || [];
+    var sub = subs.filter(function (x) { return /^vi/i.test(x.LanguageCodeName || ''); })[0] || subs[0];
+    if (sub && sub.Url) { try { vtt = await fetch(sub.Url).then(function (x) { return x.text(); }); } catch (e) {} }
+    var paid = []; if (it.isAd) paid.push('isAd');
+    Object.keys(it).forEach(function (k2) { var v = it[k2]; if (/brand|commerc|paid|partner|sponsor|promot/i.test(k2) && v && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)) paid.push(k2); });
+    var anchors = (it.anchors || []).map(function (a) { try { return JSON.parse(a.logExtra || '{}').anchor_type || ''; } catch (e) { return ''; } }).filter(Boolean);
+    var au = (it.author && it.author.uniqueId) || '';
+    return {
+      id: id, url: 'https://www.tiktok.com/@' + au + '/' + (it.imagePost ? 'photo' : 'video') + '/' + id, channel: au, createTime: N(it.createTime),
+      views: N(st.playCount), likes: N(st.diggCount), comments_count: N(st.commentCount), shares: N(st.shareCount), saves: N(st.collectCount),
+      duration: N(it.video && it.video.duration), caption: it.desc || '', vtt: vtt, comments: comments,
+      hashtags: (it.textExtra || []).map(function (x) { return x.hashtagName; }).filter(Boolean),
+      mentions: (it.textExtra || []).map(function (x) { return x.userUniqueId; }).filter(Boolean),
+      labels: (it.diversificationLabels || []).filter(function (x) { return typeof x === 'string'; }),
+      kw: (it.suggestedWords || []).map(function (x) { return typeof x === 'string' ? x : (x && (x.word || x.text)) || ''; }).filter(Boolean).slice(0, 10),
+      loc: it.locationCreated || '',
+      music: (it.music && it.music.title) || '', original_sound: !!(it.music && it.music.original), is_photo: !!it.imagePost, pinned: !!it.isPinnedItem,
+      paid_flags: paid, shop: anchors.some(function (t) { return /SHOP|COMMERCE|ECOM|PRODUCT|AFFILIATE|SHOWCASE/i.test(t); }) || !!(it.products && it.products.length),
+    };
+  }
+
+  /* ---------- đọc danh sách clip của kênh trên trang hiện tại ---------- */
+  function userMeta() {
+    try {
+      var u = JSON.parse(document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__').textContent).__DEFAULT_SCOPE__['webapp.user-detail'];
+      var i = u.userInfo || {}, us = i.user || {}, s = i.statsV2 || i.stats || {};
+      return { handle: us.uniqueId, nickname: us.nickname, bio: us.signature, verified: !!us.verified, private: !!us.privateAccount,
+        followers: +s.followerCount || 0, hearts: +(s.heartCount || s.heart) || 0, videos: +s.videoCount || 0, link: (us.bioLink && us.bioLink.link) || '' };
+    } catch (e) { return null; }
+  }
+  function idTs(u) { try { var id = String(u).replace(/\/$/, '').split('/').pop(); var t = Number(BigInt(id) >> BigInt(32)); return t > 14e8 && t < 22e8 ? t : 0; } catch (e) { return 0; } }
+  function gridLinks(h) {
+    var out = [], seen = {};
+    document.querySelectorAll('a[href*="/video/"],a[href*="/photo/"]').forEach(function (a) {
+      var u = a.href.split('?')[0];
+      if (u.toLowerCase().indexOf('/@' + h + '/') < 0 || seen[u]) return; seen[u] = 1;
+      var v = a.querySelector('[data-e2e="video-views"]'); out.push({ url: u, views: v ? v.innerText : '' });
+    });
+    return out;
+  }
+  async function listChannel(meta) {
+    var h = (meta.handle || '').toLowerCase(), last = -1, stable = 0, refresh = 0, links = [];
+    for (var k = 0; k < Math.max(60, meta.videos / 3 + 60); k++) {
+      if (S.stop) break;
+      links = gridLinks(h);
+      var t = document.body.innerText.slice(0, 6000);
+      if (!links.length && /Something went wrong|Đã xảy ra lỗi|Có lỗi xảy ra/i.test(t)) {
+        if (++refresh > 4) return { blocked: true, links: [] };
+        var b = [].slice.call(document.querySelectorAll('button')).filter(function (x) { return /^(Refresh|Làm mới|Thử lại|Tải lại)$/i.test(x.innerText.trim()); })[0];
+        if (b) b.click(); say('TikTok báo lỗi danh sách clip, đang thử lại…'); await sleep(3500); continue;
+      }
+      if (meta.videos && links.length >= meta.videos) break;
+      // có chọn khoảng ngày: lưới xếp mới → cũ, khi 6 clip cuối đều cũ hơn mốc bắt đầu thì thôi cuộn (clip ghim nằm đầu nên không ảnh hưởng)
+      if (S.from && links.length >= 6 && links.slice(-6).every(function (l) { var t = idTs(l.url); return t && t < S.from; })) { S.reachedFrom = true; break; }
+      stable = links.length === last ? stable + 1 : 0; last = links.length;
+      if ((stable >= 8 && links.length) || stable >= 12) break;
+      var oldest = links.length ? idTs(links[links.length - 1].url) : 0;
+      say('Đang đọc danh sách clip: ' + links.length + '/' + (meta.videos || '?') + (S.from && oldest ? ' · đã tới ' + new Date(oldest * 1000).toLocaleDateString('vi-VN') : ''), meta.videos ? links.length / meta.videos * 0.15 : 0);
+      window.scrollTo(0, document.body.scrollHeight); await sleep(1300);
+    }
+    return { links: links, blocked: !links.length && meta.videos > 0 };
+  }
+
+  /* ---------- chạy ---------- */
+  (async function () {
+    say('Đang kết nối với trang TikTok Insight…');
+    for (var t = 0; t < 40 && !acked; t++) { send({ type: 'hello' }); await sleep(500); }
+    if (!acked) { done('Không kết nối được trang TikTok Insight. Mở trang web của tool rồi bấm lại ⚡.'); return; }
+    var isVideo = /\/(video|photo)\/\d+/.test(location.pathname);
+    var meta = userMeta();
+    if (!isVideo && !meta) { done('Hãy mở trang kênh (tiktok.com/@tenkenh) hoặc một clip rồi bấm ⚡.'); return; }
+    var urls = [];
+    if (isVideo) {
+      urls = [location.origin + location.pathname];
+    } else {
+      if (meta.private) { done('Kênh để riêng tư, không đọc được.'); return; }
+      var L = await listChannel(meta);
+      if (L.blocked) {
+        send({ type: 'channel', meta: meta, links: [], blocked: true });
+        done('TikTok không cho xem danh sách clip khi chưa đăng nhập. Đăng nhập TikTok trên trình duyệt này rồi tải lại trang kênh và bấm ⚡.'); return;
+      }
+      send({ type: 'channel', meta: meta, links: L.links });
+      say((S.reachedFrom ? 'Đã đọc tới mốc ngày đã chọn. ' : 'Có ' + L.links.length + ' clip. ') + 'Đang chọn clip để soi sâu…', 0.15);
+      var plan = await waitFor('plan', 15000);
+      urls = (plan && plan.urls) || [];
+      if (!urls.length) { send({ type: 'finished' }); done(S.from ? 'Xong: các clip trong khoảng ngày đã chọn đều đã được soi sâu.' : 'Xong: đã cập nhật view + ngày đăng của ' + L.links.length + ' clip.'); return; }
+    }
+    /* soi sâu song song, tự giảm tốc khi TikTok từ chối */
+    var i = 0, n = 0, K = 3, pause = 600, blocks = 0, slow = false;
+    async function worker(wid) {
+      while (i < urls.length && !S.stop) {
+        if (slow && wid > 0) return;  // đã giảm tốc → chỉ giữ 1 luồng
+        var u = urls[i++], r;
+        try { r = await collect(u); } catch (e) { r = { error: String(e && e.message || e) }; }
+        if (r.blocked) {
+          blocks++; i--; urls.push(urls.splice(i, 1)[0]);   // đưa clip này về cuối hàng, thử lại sau
+          if (blocks > 6) { S.stop = true; S.blockedOut = true; break; }
+          slow = true; pause = 4000; say('TikTok từ chối vì đọc nhanh quá, giảm tốc và thử lại…');
+          await sleep(15000); continue;
+        }
+        n++;
+        send(r.error ? { type: 'error', url: u, error: r.error } : { type: 'video', data: r });
+        say('Đang soi sâu: ' + n + '/' + urls.length + ' clip', 0.15 + 0.85 * n / urls.length);
+        await sleep(pause + Math.random() * 900);
+      }
+    }
+    var ws = []; for (var w = 0; w < K; w++) ws.push(worker(w)); await Promise.all(ws);
+    send({ type: 'finished', stopped: S.stop, blocked: !!S.blockedOut });
+    done(S.blockedOut ? 'TikTok tạm từ chối (đọc nhiều quá). Dữ liệu đã lấy vẫn dùng được, thử lại sau ít phút.'
+      : S.stop ? 'Đã dừng. Dữ liệu đã lấy được đã lưu ở tab TikTok Insight.' : 'Xong ' + n + ' clip. Quay lại tab TikTok Insight để xem.');
+  })();
+})();
