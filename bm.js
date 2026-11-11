@@ -29,6 +29,7 @@
      Mọi dữ liệu gửi đi đều được giữ lại trong tab này. Lỡ đóng tab TikTok Insight thì bấm nút trong khung:
      tool mở lại trang, kết nối lại và gửi bù toàn bộ, không mất clip nào. */
   var target = window.opener && !window.opener.closed ? window.opener : null;
+  if (!target && window.__ttiWin && !window.__ttiWin.closed) target = window.__ttiWin;   // nút ⚡ đã mở sẵn lúc bấm
   if (!target) target = window.open(APPURL + '#from-tiktok', 'tikinsight');
   if (!target) { done('Trình duyệt chặn cửa sổ bật lên. Cho phép popup cho tiktok.com rồi bấm lại ⚡.'); return; }
   var acked = false, waiters = [], LOG = [], $n = box.querySelector('#tti-n');
