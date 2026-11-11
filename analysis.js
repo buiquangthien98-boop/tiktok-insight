@@ -9,7 +9,7 @@
   const AD_TALK = /qu[ảa]ng c[áa]o|\bqc\b|\bads?\b|t[àa]i tr[ợo]|sponsor|booking|nh[ậa]n bao nhi[êe]u|bao nhi[êe]u (ti[ềe]n|c[áa]t)|\bpr\b|seeding|đ[ưu][ợo]c tr[ảa] ti[ềe]n|clip (qc|pr)|l[ạa]i (qc|pr|qu[ảa]ng)/i;
   // caption kiểu bán hàng / kêu gọi mua
   const SALE_CTA = /gi[ảa]m gi[áa]|m[ãa] gi[ảa]m|voucher|link (ở |o )?bio|mua ngay|đ[ặa]t h[àa]ng|[ưu]u đ[ãa]i|khuy[ếe]n m[ãa]i|freeship|flash ?sale|deal\b|săn sale|t[ảa]i app|đăng k[ýy] ngay/i;
-  const DEEP_SMART = { top: 25, bottom: 25, newest: 15, spread: 20 };
+  const DEEP = { fast: { top: 12, bottom: 12, newest: 8, spread: 8 }, smart: { top: 25, bottom: 25, newest: 15, spread: 20 } };
 
   const median = xs => { if (!xs.length) return null; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   // 0,12 → "1/8", 0,4 → "40%": dễ hình dung hơn phần trăm nhỏ
@@ -54,6 +54,20 @@
         reply_list: (c.reply_list || []).filter(r => (r.text || "").trim()).map(r => ({ text: r.text, likes: r.likes || 0, by_creator: !!r.by_creator, by: r.by || "", biz: !!r.biz })) })),
       scanned: new Date().toISOString(),
     };
+  }
+
+  /* Số liệu đầy đủ của từng clip bắt được khi cuộn trang kênh (chưa có comment / phụ đề) → bản ghi "thin" */
+  function mergeItems(vids, recs) {
+    for (const rec of recs || []) {
+      const v = videoFrom(rec), old = vids[v.id];
+      if (old && !old.lite && !old.thin) {           // đã soi sâu: chỉ cập nhật số liệu, giữ comment + phụ đề
+        for (const k of ["views", "likes", "comments_count", "shares", "saves", "labels", "kw", "paid_flags", "shop", "pinned_api", "mentions"]) old[k] = v[k];
+        old.pinned = !!(v.pinned || old.pinned); old.stale = false; snap(old, v.views);
+      } else {
+        vids[v.id] = snap({ ...v, thin: true, lite: false, hist: (old && old.hist) || [], pinned: !!(v.pinned || (old && old.pinned)) }, v.views);
+      }
+    }
+    return vids;
   }
 
   /* Lịch sử view qua các lần quét: [[giây, view], …]. Cùng ngày thì ghi đè. */
@@ -120,20 +134,21 @@
 
   /* Chọn clip soi sâu: top view, bottom view, mới nhất, rải đều ở giữa. mode "all" = tất cả */
   function plan(vids, mode, range) {
+    const DEEP_SMART = DEEP[mode] || DEEP.fast;
     const all = Object.values(filterRange(vids, range)).filter(v => v.url);
-    const stale = all.filter(v => v.stale && !v.lite).map(v => v.url);
-    if (mode === "all") return stale.concat(all.filter(v => v.lite).map(v => v.url));
+    const stale = all.filter(v => v.stale && !v.lite && !v.thin).map(v => v.url);
+    if (mode === "all") return stale.concat(all.filter(v => v.lite || v.thin).map(v => v.url));
     const withv = all.filter(v => typeof v.views === "number").sort((a, b) => b.views - a.views);
     const newest = [...all].sort((a, b) => (b.ts || 0) - (a.ts || 0));
     const pick = [], seen = new Set();
-    const add = (vs, n) => { for (const v of vs) { if (n <= 0) break; if (seen.has(v.id)) continue; seen.add(v.id); n--; if (v.lite) pick.push(v.url); } };
+    const add = (vs, n) => { for (const v of vs) { if (n <= 0) break; if (seen.has(v.id)) continue; seen.add(v.id); n--; if (v.lite || v.thin) pick.push(v.url); } };
     add(withv.slice(0, DEEP_SMART.top), DEEP_SMART.top);
     add([...withv].reverse().slice(0, DEEP_SMART.bottom), DEEP_SMART.bottom);
     add(newest, DEEP_SMART.newest);
     const mid = withv.slice(DEEP_SMART.top, Math.max(DEEP_SMART.top, withv.length - DEEP_SMART.bottom));
     const step = Math.max(1, Math.floor(mid.length / DEEP_SMART.spread));
     add(mid.filter((_, i) => i % step === 0), DEEP_SMART.spread);
-    if (!withv.length) add(newest, 85);
+    if (!withv.length) add(newest, DEEP_SMART.top + DEEP_SMART.bottom + DEEP_SMART.newest + DEEP_SMART.spread);
     return stale.concat(pick.filter(u => !stale.includes(u)));
   }
 
@@ -256,7 +271,7 @@
       duration: group(durKey, DURS.map(d => d[2]).concat(["Ảnh (photo)"])),
       weekday: group(v => (dt(v) ? [WEEKDAY[wkIdx(dt(v))]] : []), WEEKDAY, 1, baseT),
       hour: group(v => (dt(v) ? HOURS.filter(([a, b]) => a <= dt(v).getHours() && dt(v).getHours() < b).map(h => h[2]) : []), HOURS.map(h => h[2]), 1, baseT),
-      sound: group(v => (v.lite ? [] : [v.original_sound ? "Âm thanh gốc" : "Nhạc / sound có sẵn"])),
+      sound: group(v => (v.lite || !v.music ? [] : [v.original_sound ? "Âm thanh gốc" : "Nhạc / sound có sẵn"])),
       hashtag: group(v => [...new Set((v.hashtags || []).map(h => "#" + h.toLowerCase()))], null, 2).slice(0, 25),
       topic: group(v => [...new Set(v.labels || [])], null, 2).slice(0, 12),
       keyword: group(v => [...new Set((v.kw || []).map(x => x.toLowerCase()))], null, 2).slice(0, 20),
@@ -284,7 +299,7 @@
       viral: viral.size, win: [...win].filter(id => !viral.has(id)).length, flop: flop.size,
       new: rows.filter(v => v.isNew).length, organic: rows.filter(v => v.kind === "ORGANIC").length,
       paid: rows.filter(v => v.kind === "PAID").length, suspect: rows.filter(v => v.kind === "NGHI ADS").length,
-      shop: rows.filter(v => v.shop).length, deep: rows.filter(v => !v.lite).length,
+      shop: rows.filter(v => v.shop).length, deep: rows.filter(v => !v.lite && !v.thin).length, full: rows.filter(v => !v.lite).length,
       with_transcript: rows.filter(v => v.transcript).length, comments_got: rows.reduce((a, v) => a + (v.comments || []).length, 0),
     };
     return { rows, summary, tables };
@@ -329,7 +344,7 @@
     o.push("# DỮ LIỆU KÊNH", "", "## D1. Tổng quan", "",
       `- Kênh: **${meta.nickname || h}** (@${h})${meta.verified ? " · tích xanh" : ""}`,
       `- Bio: ${(meta.bio || "(trống)").replace(/\n/g, " / ")}${meta.link ? " · link: " + meta.link : ""}`,
-      `- Follower ${n_(meta.followers)} · Tổng tim ${n_(meta.hearts)} · Kênh có ${n_(meta.videos)} clip · có view + ngày đăng của ${rows.length} clip · soi sâu (chỉ số đủ, transcript, comment) ${s.deep || 0} clip đại diện`,
+      `- Follower ${n_(meta.followers)} · Tổng tim ${n_(meta.hearts)} · Kênh có ${n_(meta.videos)} clip · có số liệu của ${rows.length} clip (đủ like / comment / share / save: ${s.full || 0} clip) · đọc comment + phụ đề ${s.deep || 0} clip đại diện`,
       ...(ranged ? [`- **Khoảng ngày phân tích: ${rangeLabel(range)}** — chỉ xét clip đăng trong khoảng này; mức chuẩn ×TV, WIN/FLOP/VIRAL đều tính trong khoảng này, không phải toàn kênh.`] : []),
       ...(s.pinned ? [`- ${s.pinned} clip ghim (clip cũ treo đầu kênh) có nhãn như thường nhưng không tính vào giai đoạn, tần suất, bảng theo tháng / thứ / giờ.`] : []),
       ...(!ranged && meta.videos && rows.length < meta.videos * 0.6 ? [`- ⚠ Mới đọc được ${rows.length}/${n_(meta.videos)} clip của kênh (TikTok chỉ cho tải tới đó). Kết luận chỉ đúng cho giai đoạn bên dưới, không phải cả kênh.`] : []),
@@ -389,7 +404,7 @@
     }
     const ord = { VIRAL: 0, WIN: 1, FLOP: 2, "ỔN": 3, PAID: 4, "NGHI ADS": 5, "MỚI": 6 };
     o.push("## D4. Chi tiết từng clip", "", "_Chỉ gồm clip đã soi sâu. Thứ tự: VIRAL → WIN → FLOP → ỔN → PAID → NGHI ADS → MỚI. Số # khớp với bảng ở mục D2._", "");
-    [...rows].filter(v => !v.lite).sort((a, b) => (ord[a.label] - ord[b.label]) || (b.x_med - a.x_med)).forEach(v => {
+    [...rows].filter(v => !v.lite && !v.thin).sort((a, b) => (ord[a.label] - ord[b.label]) || (b.x_med - a.x_med)).forEach(v => {
       const hot = ["VIRAL", "WIN", "FLOP", "PAID", "NGHI ADS"].includes(v.label) || v.er_high;
       o.push(`### #${v._i} · ${v.label}${v.er_high ? " · ER cao" : ""} · ${x_(v.x_med)} · ${date_(v.ts, true)}`, `- Link: ${v.url}`,
         `- View ${n_(v.views)} · Like ${n_(v.likes)} · Cmt ${n_(v.comments_count)} · Share ${n_(v.shares)} · Save ${n_(v.saves)}` +
@@ -421,5 +436,5 @@
     return o.join("\n").trim() + "\n";
   }
 
-  G.TTI = { shareBench, analyze, buildMd, plan, snap, applyMarks, idOf, rangeBounds, rangeLabel, filterRange, RANGE_NAMES, mergeLinks, videoFrom, kNum, idTs, cleanVtt, pickComments, NEW_DAYS };
+  G.TTI = { mergeItems, shareBench, analyze, buildMd, plan, snap, applyMarks, idOf, rangeBounds, rangeLabel, filterRange, RANGE_NAMES, mergeLinks, videoFrom, kNum, idTs, cleanVtt, pickComments, NEW_DAYS };
 })(window);
