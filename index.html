@@ -108,7 +108,14 @@ td.hk{color:var(--mute);max-width:360px}
 .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;letter-spacing:.02em}
 .pill.WIN{background:var(--win-soft);color:var(--win)} .pill.FLOP{background:var(--flop-soft);color:var(--flop)}
 .pill.ỔN{background:var(--soft);color:var(--mute)} .pill.er{background:var(--accent-soft);color:var(--accent);margin-left:4px}
-.pill.VIRAL{background:var(--win);color:#fff} .pill.MỚI{background:var(--accent-soft);color:var(--accent)}
+.pill.VIRAL{position:relative;overflow:hidden;color:#3b2b60;text-shadow:0 1px 0 rgba(255,255,255,.6);
+  background:linear-gradient(110deg,#ffc2d4,#ffdcb0,#fff3a8,#c9f7c4,#ade9ff,#cfbcff,#ffc2d4);background-size:300% 100%;animation:holo 6s linear infinite;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.65),0 1px 8px rgba(190,170,255,.55),0 0 16px rgba(255,190,215,.4)}
+.pill.VIRAL::before{content:"✦";margin-right:3px;font-size:9px;vertical-align:1px}
+.pill.VIRAL::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.9) 48%,transparent 64%);transform:translateX(-130%);animation:shine 3.2s ease-in-out infinite;pointer-events:none}
+@keyframes holo{to{background-position:300% 0}}
+@keyframes shine{0%,60%{transform:translateX(-130%)}100%{transform:translateX(130%)}}
+@media (prefers-reduced-motion:reduce){.pill.VIRAL,.pill.VIRAL::after{animation:none}} .pill.MỚI{background:var(--accent-soft);color:var(--accent)}
 .pill.PAID{background:var(--warn-soft);color:var(--warn)} .pill.NGHI{background:var(--warn-soft);color:var(--warn);border:1px dashed var(--warn)}
 .pill.shop{background:var(--soft);color:var(--mute);margin-left:4px}
 .xm{display:inline-flex;align-items:center;gap:6px} .xm i{display:inline-block;height:6px;border-radius:99px;background:var(--accent);opacity:.75}
