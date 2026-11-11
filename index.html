@@ -520,7 +520,7 @@ async function loadDetail(h,quiet){
 function grp(title,rows){
   if(!rows||!rows.length)return"";
   const mx=Math.max(...rows.map(r=>r.med_x||0),1);
-  const lw=Math.round(Math.min(170,Math.max(56,Math.max(...rows.map(r=>String(r.key).length))*6.4)));
+  const lw=Math.round(Math.min(170,Math.max(64,Math.max(...rows.map(r=>String(r.key).length))*7.4)));
   return `<div class="grp" style="--lw:${lw}px"><h4>${title}</h4>${rows.map(r=>`<div class="gr" title="${r.n} clip · TV ${fmt(r.med_views)} · ${r.win} win / ${r.flop} flop"><span>${esc(r.key)}</span><span class="t"><i style="width:${Math.round((r.med_x||0)/mx*100)}%"></i></span><span>${xm(r.med_x)}</span></div>`).join("")}</div>`;
 }
 function heat(h,t){
