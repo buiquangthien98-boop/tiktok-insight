@@ -170,6 +170,11 @@ td.hk .why{font-size:11.5px;color:var(--warn);margin-top:3px;line-height:1.35}
 .ch.sel .ck::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 #chbar{gap:12px;align-items:center}
 .btn.danger{background:var(--flop);color:#fff;border-color:var(--flop)}.btn.danger:disabled{opacity:.4;cursor:default}
+.hm .c{flex-direction:column;gap:0;height:42px;line-height:1.15}
+.hm .c b{font-size:12.5px;font-weight:650}.hm .c small{font-size:10px;opacity:.75;font-weight:500}
+.hm .c.one{opacity:.55}.hm .c.cold{background:var(--soft)}
+.hsay{margin:0 0 4px;font-size:13.5px;line-height:1.45}.hsub{margin:0 0 12px;font-size:12px;color:var(--mute)}
+.hmempty{padding:22px 16px;border-radius:10px;background:var(--soft);font-size:13px}.hmempty b{display:block;margin-bottom:4px}.hmempty span{color:var(--mute)}
 .modal{position:fixed;inset:0;background:rgba(10,8,16,.35);display:none;align-items:center;justify-content:center;padding:20px;z-index:5}
 .modal.show{display:flex}
 .mbox{width:min(480px,100%);padding:24px}
@@ -505,15 +510,30 @@ function grp(title,rows){
   const mx=Math.max(...rows.map(r=>r.med_x||0),1);
   return `<div class="grp"><h4>${title}</h4>${rows.map(r=>`<div class="gr" title="${r.n} clip · TV ${fmt(r.med_views)} · ${r.win} win / ${r.flop} flop"><span>${esc(r.key)}</span><span class="t"><i style="width:${Math.round((r.med_x||0)/mx*100)}%"></i></span><span>${xm(r.med_x)}</span></div>`).join("")}</div>`;
 }
-function heat(h){
+function heat(h,t){
   if(!h||!h.rows)return"";
-  const all=h.rows.flatMap(r=>r.cells).filter(c=>c.n); if(!all.length)return"";
-  const mx=Math.max(...all.map(c=>c.med)), short={"Thứ 2":"T2","Thứ 3":"T3","Thứ 4":"T4","Thứ 5":"T5","Thứ 6":"T6","Thứ 7":"T7","Chủ nhật":"CN"};
-  const cell=c=>{if(!c.n)return `<div class="c"></div>`;const a=Math.sqrt(c.med/mx);
-    return `<div class="c ${c.n<2?"one":""}" style="background:rgba(232,69,90,${(0.12+a*0.83).toFixed(2)});color:${a>0.55?"#fff":"var(--ink)"}" title="${c.n} clip · view trung vị ${fmt(c.med)} · ${xm(c.x)} so với mức thường">${fmt(c.med)}</div>`};
-  return `<div class="heat"><h4>Khung giờ đăng · view trung vị${h.organic?" (clip organic)":""}</h4><div class="hm"><div></div>${h.hours.map(x=>`<div class="hd">${x}</div>`).join("")}
-    ${h.rows.map(r=>`<div class="dl">${short[r.day]||r.day}</div>${r.cells.map(cell).join("")}`).join("")}</div>
-    <div class="hint" style="margin-top:8px">Màu càng đậm càng nhiều view. Chữ nhạt = mới có 1 clip, chưa đủ để kết luận.</div></div>`;
+  const short={"Thứ 2":"T2","Thứ 3":"T3","Thứ 4":"T4","Thứ 5":"T5","Thứ 6":"T6","Thứ 7":"T7","Chủ nhật":"CN"};
+  const all=h.rows.flatMap(r=>r.cells).filter(c=>c.n), N=all.reduce((a,c)=>a+c.n,0);
+  const title=`<h4>Khung giờ đăng${h.organic?" · clip organic":""}</h4>`;
+  if(N<8)return `<div class="heat">${title}<div class="hmempty"><b>Chưa đủ dữ liệu để đọc giờ đăng.</b><span>Mới có ${N} clip đủ điều kiện (đăng từ 7 ngày trước${h.organic?", không tính clip ads":""}). Cần từ 8 clip: chọn khoảng ngày rộng hơn hoặc quét thêm clip.</span></div></div>`;
+  // câu kết luận: chỉ tin nhóm có ≥ 2 clip
+  const best=(g)=>(g||[]).filter(x=>x.n>=2&&x.med_x!=null).sort((a,b)=>b.med_x-a.med_x)[0];
+  const bd=best(t.weekday), bh=best(t.hour);
+  const cells=h.rows.flatMap(r=>r.cells.map((c,k)=>({...c,day:r.day,hour:h.hours[k]}))).filter(c=>c.n>=2&&c.x!=null).sort((a,b)=>b.x-a.x);
+  const top=cells[0];
+  const say=[];
+  if(top&&top.x>=1.15)say.push(`Đăng <b>${short[top.day]} ${top.hour}</b> ăn nhất: view gấp <b>${xm(top.x)}</b> mức thường (${top.n} clip).`);
+  else if(bd||bh)say.push(`Chưa có khung giờ nào nổi hẳn lên: giờ đăng không phải lý do chính khiến clip win hay flop.`);
+  const sub=[bd&&`Thứ tốt nhất: <b>${short[bd.key]||bd.key}</b> ${xm(bd.med_x)}`,bh&&`Khung giờ tốt nhất: <b>${bh.key}</b> ${xm(bh.med_x)}`].filter(Boolean).join(" · ");
+  // màu theo ×TV: trên mức thường → đỏ hồng đậm dần, dưới mức thường → nhạt
+  const mx=Math.max(1.5,...all.map(c=>c.x||0));
+  const cell=c=>{if(!c.n)return `<div class="c"></div>`;
+    const x=c.x||0, hot=x>=1.1, a=hot?0.28+0.67*Math.min(1,(x-1.1)/Math.max(0.4,mx-1.1)):0, dark=a>(matchMedia("(prefers-color-scheme: dark)").matches?0.5:0.82);
+    return `<div class="c ${c.n<2?"one":""} ${hot?"":"cold"}" style="${hot?`background:rgba(232,69,90,${a.toFixed(2)});`:""}color:${dark?"#fff":hot?"var(--ink)":"var(--mute)"}" title="${short[c.day]||""} ${c.hour||""} · ${c.n} clip · view trung vị ${fmt(c.med)} · ${xm(x)} so với mức thường"><b>${xm(x)}</b><small>${c.n} clip</small></div>`};
+  return `<div class="heat">${title}${say.length?`<p class="hsay">${say.join(" ")}</p>`:""}${sub?`<p class="hsub">${sub}</p>`:""}
+    <div class="hm"><div></div>${h.hours.map(x=>`<div class="hd">${x}</div>`).join("")}
+    ${h.rows.map(r=>`<div class="dl">${short[r.day]||r.day}</div>${r.cells.map((c,k)=>cell({...c,day:r.day,hour:h.hours[k]})).join("")}`).join("")}</div>
+    <div class="hint" style="margin-top:8px">Số trong ô = view trung vị so với mức thường của kênh (1× là bình thường). Ô đỏ là giờ đăng ăn hơn mức thường, càng đậm càng ăn. Ô xám là ngang hoặc kém. Ô mờ mới có 1 clip, chưa đủ để tin. Dựa trên ${N} clip.</div></div>`;
 }
 function renderDetail(){
   const d=detail,m=d.meta||{},s=d.summary||{},t=d.tables||{};
@@ -543,7 +563,7 @@ function renderDetail(){
       <span class="hint">Quét lần cuối ${esc(m.scanned||"–")}</span><span style="flex:1"></span><button class="link del" onclick="delCh('${esc(m.handle)}')">Xoá kênh</button></div>
     ${diffCard(d)}
     <div id="aibox">${aiCard()}</div>
-    <div class="groups">${heat(t.heat)}${grp("Theo độ dài",t.duration)}${grp("Organic vs paid",t.kind)}${grp("Chủ đề TikTok tự gắn",(t.topic||[]).slice(0,6))}</div>
+    <div class="groups">${heat(t.heat,t)}${grp("Theo độ dài",t.duration)}${grp("Organic vs paid",t.kind)}${grp("Chủ đề TikTok tự gắn",(t.topic||[]).slice(0,6))}</div>
     <div class="hint">Thanh = view trung vị của nhóm so với mức thường (×TV). Clip PAID và NGHI ADS không được tính vào mức thường. Quét lại kênh sau vài ngày để tool bắt được clip đang chạy ads.</div>
     <div class="tw"><table><thead><tr><th onclick="sortDet('date')">Ngày${sortBy==="date"?" ↓":""}</th><th>Hook / caption</th><th class="num">View</th><th onclick="sortDet('x')">×TV${sortBy==="x"?" ↓":""}</th><th>Nhãn</th>
       <th class="num hide-s" onclick="sortDet('er')">Tương tác${sortBy==="er"?" ↓":""}</th><th class="num hide-s">Share</th><th class="num hide-s" title="Comment đã lấy / tổng TikTok hiển thị">Cmt lấy / tổng</th></tr></thead>
