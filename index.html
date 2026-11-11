@@ -178,6 +178,9 @@ td.hk .why{font-size:11.5px;color:var(--warn);margin-top:3px;line-height:1.35}
 .ai-prog{padding:12px 14px;margin:10px 0;border-radius:10px;background:var(--soft);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 .ai-prog .hint{font-size:12px}.ai-prog .th,.ai-prog div.hint{flex-basis:100%;margin:0}.ai-prog .th{font-style:italic}
 .ai-prog .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+.snap *{animation:none!important;transition:none!important}.snap .pill.VIRAL::after{display:none}
+.snap-h{display:flex;justify-content:space-between;align-items:baseline;margin:0 4px 14px;font-size:13px;color:var(--mute)}.snap-h b{font-size:17px;color:var(--ink);letter-spacing:-.01em}
+.snap-f{margin:14px 4px 0;font-size:11.5px;color:var(--faint);text-align:right}
 .modal{position:fixed;inset:0;background:rgba(10,8,16,.35);display:none;align-items:center;justify-content:center;padding:20px;z-index:5}
 .modal.show{display:flex}
 .mbox{width:min(480px,100%);padding:24px}
@@ -547,7 +550,7 @@ function renderDetail(){
     <div class="det-head">
       <div><h2>${esc(m.nickname||m.handle)} <span class="hint">@${esc(m.handle)}</span>${ranged()?`<span class="rtag">${esc(TTI.rangeLabel(range))}</span>`:""}</h2><div class="bio">${esc((m.bio||"").replace(/\n/g," · "))}</div></div>
       <div class="acts"><select id="depth" title="Độ dày file xuất"><option value="gon">File gọn</option><option value="vua" selected>File vừa (khuyên dùng)</option><option value="du">File đầy đủ</option></select>
-        <button class="btn primary" onclick="exportMd()">Xuất .md cho AI</button></div>
+        <button class="btn" onclick="exportJpg()">Xuất ảnh JPEG</button><button class="btn primary" onclick="exportMd()">Xuất .md cho AI</button></div>
     </div>
     ${m.partial?`<div class="note" style="margin-top:14px">TikTok chặn danh sách clip khi chưa đăng nhập, nên dữ liệu kênh này chưa đủ. Đăng nhập TikTok trên trình duyệt này rồi bấm ⚡ lại trên trang kênh.</div>`:""}
     <div class="chips">
@@ -779,6 +782,36 @@ function saveAIset(){const k=$("gkey").value.trim(),m=$("gmodelsel").value;
   if(!k||!m){$("gmsg").textContent="Cần key hợp lệ và chọn model.";return}
   ls.set("tti_gkey",k);ls.set("tti_gmodel",m);closeAIset();toast("Đã lưu. Bấm Phân tích bằng AI.")}
 function clearAIset(){ls.set("tti_gkey","");ls.set("tti_gmodel","");$("gkey").value="";fillModels(true);$("gmsg").textContent="Đã xoá key khỏi trình duyệt này."}
+
+
+/* ---------- xuất ảnh JPEG của kết quả ---------- */
+const loadJs=src=>new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("Không tải được "+src));document.head.appendChild(s)});
+async function exportJpg(){
+  const det=document.querySelector(".det"); if(!det||!detail)return;
+  toast("Đang dựng ảnh…");
+  try{
+    if(!window.html2canvas)await loadJs("html2canvas.min.js");
+    const bg=getComputedStyle(document.body).backgroundColor, W=1040;
+    const box=document.createElement("div"); box.className="snap"; box.style.cssText=`position:fixed;left:-20000px;top:0;width:${W}px;padding:28px;background:${bg};`;
+    const m=detail.meta||{}, now=new Date();
+    box.innerHTML=`<div class="snap-h"><b>TikTok Insight</b><span>Khám kênh @${esc(m.handle)} · ${now.toLocaleDateString("vi-VN")}${ranged()?" · "+esc(TTI.rangeLabel(range)):""}</span></div>`;
+    const c=det.cloneNode(true); box.appendChild(c);
+    c.querySelectorAll(".acts,.empty-ai,.ai-h .row,.ai-prog,.errs").forEach(e=>e.remove());
+    c.querySelectorAll(".ai-body").forEach(e=>{e.style.maxHeight="none";e.style.overflow="visible";e.classList.remove("busy")});
+    c.querySelectorAll(".tw").forEach(e=>e.style.overflow="visible");
+    // bảng clip: giữ 20 dòng đầu theo cách đang sắp xếp
+    const r0=c.querySelector("tr.r"), tb=r0&&r0.parentElement; if(tb){const rows=[...tb.querySelectorAll("tr.r")]; if(rows.length>20){rows.slice(20).forEach(r=>r.remove());
+      const tr=document.createElement("tr");tr.innerHTML=`<td colspan="8" class="hint" style="text-align:center;padding:10px">… và ${rows.length-20} clip khác</td>`;tb.appendChild(tr)}}
+    const f=document.createElement("div");f.className="snap-f";f.textContent="Tạo bằng TikTok Insight · "+location.host+location.pathname;box.appendChild(f);
+    document.body.appendChild(box);
+    const H=box.scrollHeight, scale=Math.max(1,Math.min(2,Math.sqrt(16e6/(W*H))));   // Safari giới hạn ~16 triệu điểm ảnh mỗi ảnh
+    const cv=await html2canvas(box,{backgroundColor:bg,scale,logging:false,useCORS:true});
+    box.remove();
+    const blob=await new Promise(r=>cv.toBlob(r,"image/jpeg",0.92));
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`kham-kenh-${m.handle}-${now.toISOString().slice(0,10)}.jpg`;a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);toast("Đã tải ảnh "+a.download);
+  }catch(e){document.querySelectorAll(".snap").forEach(x=>x.remove());toast("Không xuất được ảnh: "+e.message)}
+}
 
 /* ---------- sổ tay ---------- */
 function gTab(k){document.querySelectorAll(".gtabs button").forEach(b=>b.classList.toggle("on",b.dataset.g===k));document.querySelectorAll(".gpane").forEach(p=>p.classList.toggle("on",p.dataset.g===k));ls.set("tti_gtab",k)}
