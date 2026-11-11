@@ -15,7 +15,9 @@
   box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>⚡ TikTok Insight</b>' +
     '<button id="tti-x" style="background:#2a2830;color:#f2f1f5;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit">Dừng</button></div>' +
     '<div id="tti-m" style="color:#c9c6d2">Đang chuẩn bị…</div>' +
-    '<div style="height:5px;background:#2a2830;border-radius:9px;margin-top:10px;overflow:hidden"><i id="tti-b" style="display:block;height:100%;width:0;background:#9a74ff;transition:width .3s"></i></div>';
+    '<div style="height:5px;background:#2a2830;border-radius:9px;margin-top:10px;overflow:hidden"><i id="tti-b" style="display:block;height:100%;width:0;background:#9a74ff;transition:width .3s"></i></div>' +
+    '<button id="tti-go" style="margin-top:12px;width:100%;background:#9a74ff;color:#120f1a;border:0;border-radius:9px;padding:8px 10px;cursor:pointer;font:inherit;font-weight:600">Mở trang TikTok Insight →</button>' +
+    '<div id="tti-n" style="display:none;margin-top:8px;font-size:12px;color:#e8b54a"></div>';
   document.body.appendChild(box);
   var $m = box.querySelector('#tti-m'), $b = box.querySelector('#tti-b');
   box.querySelector('#tti-x').onclick = function () { S.stop = true; say('Đang dừng…'); };
@@ -23,12 +25,31 @@
   function say(t, p) { $m.textContent = t; if (p != null) $b.style.width = Math.round(p * 100) + '%'; }
   function done(t) { S.running = false; say(t, 1); var b = box.querySelector('#tti-x'); b.textContent = 'Đóng'; b.onclick = function () { box.remove(); }; }
 
-  /* ---------- kết nối với tab web ---------- */
+  /* ---------- kết nối với tab web ----------
+     Mọi dữ liệu gửi đi đều được giữ lại trong tab này. Lỡ đóng tab TikTok Insight thì bấm nút trong khung:
+     tool mở lại trang, kết nối lại và gửi bù toàn bộ, không mất clip nào. */
   var target = window.opener && !window.opener.closed ? window.opener : null;
   if (!target) target = window.open(APPURL + '#from-tiktok', 'tikinsight');
   if (!target) { done('Trình duyệt chặn cửa sổ bật lên. Cho phép popup cho tiktok.com rồi bấm lại ⚡.'); return; }
-  var acked = false, waiters = [];
-  function send(m) { try { target.postMessage(m, APP); } catch (e) {} }
+  var acked = false, waiters = [], LOG = [], $n = box.querySelector('#tti-n');
+  function lost() { return !target || target.closed; }
+  function send(m) {
+    if (m.type !== 'hello') LOG.push(m);
+    if (lost()) { $n.style.display = 'block'; $n.textContent = 'Tab TikTok Insight đã đóng. Dữ liệu vẫn được giữ ở đây, bấm nút phía trên để mở lại và lưu.'; return; }
+    try { target.postMessage(m, APP); } catch (e) {}
+  }
+  async function reconnect() {
+    target = window.open(APPURL + '#from-tiktok', 'tikinsight');
+    if (!target) { $n.style.display = 'block'; $n.textContent = 'Trình duyệt chặn cửa sổ bật lên. Cho phép popup cho tiktok.com rồi bấm lại.'; return; }
+    acked = false;
+    for (var t = 0; t < 40 && !acked; t++) { try { target.postMessage({ type: 'hello' }, APP); } catch (e) {} await sleep(500); }
+    if (!acked) return;
+    var copy = LOG.slice();
+    for (var i = 0; i < copy.length; i++) { try { target.postMessage(copy[i], APP); } catch (e) {} if (i % 10 === 9) await sleep(50); }
+    $n.style.display = 'block'; $n.style.color = '#4cc38a'; $n.textContent = 'Đã mở lại và gửi bù ' + copy.length + ' mục. Không mất dữ liệu.';
+  }
+  // Luôn mở (hoặc chuyển sang) tab tên 'tikinsight', kết nối lại rồi gửi bù: dù tab cũ còn hay mất, tab mở ra đều đủ dữ liệu.
+  box.querySelector('#tti-go').onclick = function () { reconnect(); };
   window.addEventListener('message', function (e) {
     if (e.origin !== APP || !e.data) return;
     if (e.data.type === 'ack') { acked = true; S.from = +e.data.from || 0; }
@@ -97,33 +118,35 @@
   }
 
   /* ---------- đọc danh sách clip của kênh trên trang hiện tại ---------- */
-  function userMeta() {
+  function userMeta(D) {
+    D = D || document;
     try {
-      var u = JSON.parse(document.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__').textContent).__DEFAULT_SCOPE__['webapp.user-detail'];
+      var u = JSON.parse(D.getElementById('__UNIVERSAL_DATA_FOR_REHYDRATION__').textContent).__DEFAULT_SCOPE__['webapp.user-detail'];
       var i = u.userInfo || {}, us = i.user || {}, s = i.statsV2 || i.stats || {};
       return { handle: us.uniqueId, nickname: us.nickname, bio: us.signature, verified: !!us.verified, private: !!us.privateAccount,
         followers: +s.followerCount || 0, hearts: +(s.heartCount || s.heart) || 0, videos: +s.videoCount || 0, link: (us.bioLink && us.bioLink.link) || '' };
     } catch (e) { return null; }
   }
   function idTs(u) { try { var id = String(u).replace(/\/$/, '').split('/').pop(); var t = Number(BigInt(id) >> BigInt(32)); return t > 14e8 && t < 22e8 ? t : 0; } catch (e) { return 0; } }
-  function gridLinks(h) {
+  function gridLinks(h, D) {
     var out = [], seen = {};
-    document.querySelectorAll('a[href*="/video/"],a[href*="/photo/"]').forEach(function (a) {
+    (D || document).querySelectorAll('a[href*="/video/"],a[href*="/photo/"]').forEach(function (a) {
       var u = a.href.split('?')[0];
       if (u.toLowerCase().indexOf('/@' + h + '/') < 0 || seen[u]) return; seen[u] = 1;
       var v = a.querySelector('[data-e2e="video-views"]'); out.push({ url: u, views: v ? v.innerText : '' });
     });
     return out;
   }
-  async function listChannel(meta) {
+  async function listChannel(meta, D, W) {
+    D = D || document; W = W || window;
     var h = (meta.handle || '').toLowerCase(), last = -1, stable = 0, refresh = 0, links = [];
     for (var k = 0; k < Math.max(60, meta.videos / 3 + 60); k++) {
       if (S.stop) break;
-      links = gridLinks(h);
-      var t = document.body.innerText.slice(0, 6000);
+      links = gridLinks(h, D);
+      var t = D.body.innerText.slice(0, 6000);
       if (!links.length && /Something went wrong|Đã xảy ra lỗi|Có lỗi xảy ra/i.test(t)) {
         if (++refresh > 4) return { blocked: true, links: [] };
-        var b = [].slice.call(document.querySelectorAll('button')).filter(function (x) { return /^(Refresh|Làm mới|Thử lại|Tải lại)$/i.test(x.innerText.trim()); })[0];
+        var b = [].slice.call(D.querySelectorAll('button')).filter(function (x) { return /^(Refresh|Làm mới|Thử lại|Tải lại)$/i.test(x.innerText.trim()); })[0];
         if (b) b.click(); say('TikTok báo lỗi danh sách clip, đang thử lại…'); await sleep(3500); continue;
       }
       if (meta.videos && links.length >= meta.videos) break;
@@ -133,7 +156,7 @@
       if ((stable >= 8 && links.length) || stable >= 12) break;
       var oldest = links.length ? idTs(links[links.length - 1].url) : 0;
       say('Đang đọc danh sách clip: ' + links.length + '/' + (meta.videos || '?') + (S.from && oldest ? ' · đã tới ' + new Date(oldest * 1000).toLocaleDateString('vi-VN') : ''), meta.videos ? links.length / meta.videos * 0.15 : 0);
-      window.scrollTo(0, document.body.scrollHeight); await sleep(1300);
+      W.scrollTo(0, D.body.scrollHeight); await sleep(1300);
     }
     return { links: links, blocked: !links.length && meta.videos > 0 };
   }
@@ -144,14 +167,27 @@
     for (var t = 0; t < 40 && !acked; t++) { send({ type: 'hello' }); await sleep(500); }
     if (!acked) { done('Không kết nối được trang TikTok Insight. Mở trang web của tool rồi bấm lại ⚡.'); return; }
     var isVideo = /\/(video|photo)\/\d+/.test(location.pathname);
-    var meta = userMeta();
+    var meta = userMeta(), D = document, W = window, frame = null;
+    // Đang xem một clip → mở ngầm trang kênh của người đăng trong khung ẩn rồi quét cả kênh
+    var owner = (location.pathname.match(/^\/@([^/]+)\/(?:video|photo)\//) || [])[1];
+    if (isVideo && owner) {
+      say('Đang mở ngầm kênh @' + decodeURIComponent(owner) + ' để quét cả kênh…');
+      frame = document.createElement('iframe');
+      frame.src = '/@' + owner;
+      frame.style.cssText = 'position:fixed;left:-3000px;top:0;width:1200px;height:900px;opacity:0;pointer-events:none;border:0';
+      document.body.appendChild(frame);
+      await new Promise(function (r) { frame.onload = r; setTimeout(r, 20000); });
+      for (var w = 0; w < 10; w++) { try { D = frame.contentDocument; W = frame.contentWindow; meta = userMeta(D); } catch (e) { meta = null; } if (meta) break; await sleep(800); }
+      if (!meta) { frame.remove(); frame = null; D = document; W = window; }
+    }
     if (!isVideo && !meta) { done('Hãy mở trang kênh (tiktok.com/@tenkenh) hoặc một clip rồi bấm ⚡.'); return; }
     var urls = [];
-    if (isVideo) {
-      urls = [location.origin + location.pathname];
+    if (isVideo && !meta) {
+      urls = [location.origin + location.pathname];   // không mở được trang kênh → chỉ quét clip đang xem
     } else {
-      if (meta.private) { done('Kênh để riêng tư, không đọc được.'); return; }
-      var L = await listChannel(meta);
+      if (meta.private) { if (frame) frame.remove(); done('Kênh để riêng tư, không đọc được.'); return; }
+      var L = await listChannel(meta, D, W);
+      if (frame) { frame.remove(); frame = null; }
       if (L.blocked) {
         send({ type: 'channel', meta: meta, links: [], blocked: true });
         done('TikTok không cho xem danh sách clip khi chưa đăng nhập. Đăng nhập TikTok trên trình duyệt này rồi tải lại trang kênh và bấm ⚡.'); return;
@@ -176,7 +212,7 @@
           await sleep(15000); continue;
         }
         n++;
-        send(r.error ? { type: 'error', url: u, error: r.error } : { type: 'video', data: r });
+        send(r.error ? { type: 'error', url: u, error: r.error, of: urls.length } : { type: 'video', data: r, of: urls.length });
         say('Đang soi sâu: ' + n + '/' + urls.length + ' clip', 0.15 + 0.85 * n / urls.length);
         await sleep(pause + Math.random() * 900);
       }
