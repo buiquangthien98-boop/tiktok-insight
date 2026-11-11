@@ -1,7 +1,7 @@
 (function () {
   /* TikTok Insight · nút ⚡ — chạy trên tab TikTok, đọc kênh rồi gửi dữ liệu về tab web.
      Địa chỉ trang web và tên miền TikTok được trang web điền vào khi tạo nút. */
-  var APP = '%%APP%%', HOST = new RegExp('%%HOST%%');
+  var APP = '%%APP%%', APPURL = '%%APPURL%%', HOST = new RegExp('%%HOST%%');
   if (!HOST.test(location.hostname)) { alert('TikTok Insight: mở trang kênh TikTok (tiktok.com/@tenkenh) rồi bấm lại nút ⚡.'); return; }
   if (window.__tti && window.__tti.running) { window.__tti.show(); return; }
   var S = window.__tti = { running: true, stop: false };
@@ -25,7 +25,7 @@
 
   /* ---------- kết nối với tab web ---------- */
   var target = window.opener && !window.opener.closed ? window.opener : null;
-  if (!target) target = window.open(APP + '/#from-tiktok', 'tikinsight');
+  if (!target) target = window.open(APPURL + '#from-tiktok', 'tikinsight');
   if (!target) { done('Trình duyệt chặn cửa sổ bật lên. Cho phép popup cho tiktok.com rồi bấm lại ⚡.'); return; }
   var acked = false, waiters = [];
   function send(m) { try { target.postMessage(m, APP); } catch (e) {} }

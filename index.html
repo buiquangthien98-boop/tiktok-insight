@@ -377,7 +377,7 @@ const queue=fn=>(chain=chain.then(fn).catch(e=>console.error(e)));
 const TEST_HOST=new URLSearchParams(location.search).get("testhost");
 fetch("bm.js").then(r=>r.text()).then(code=>{
   const host=TEST_HOST?"^"+TEST_HOST.replace(/\./g,"\\.")+"$":"(^|\\.)tiktok\\.com$";
-  code=code.split("%%APP%%").join(location.origin).split("%%HOST%%").join(host.replace(/\\/g,"\\\\"));
+  code=code.split("%%APPURL%%").join(location.origin+location.pathname.replace(/[^/]*$/,"")).split("%%APP%%").join(location.origin).split("%%HOST%%").join(host.replace(/\\/g,"\\\\"));
   $("bm").href="javascript:"+encodeURIComponent(code.trim());
 });
 const tiktokOrigin=o=>TEST_HOST?o.includes(TEST_HOST):/^https:\/\/([a-z0-9-]+\.)*tiktok\.com$/.test(o);
