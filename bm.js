@@ -92,7 +92,7 @@
       kw: (it.suggestedWords || []).map(function (x) { return typeof x === 'string' ? x : (x && (x.word || x.text)) || ''; }).filter(Boolean).slice(0, 10),
       loc: it.locationCreated || '',
       music: (it.music && it.music.title) || '', original_sound: !!(it.music && it.music.original), is_photo: !!it.imagePost, pinned: !!it.isPinnedItem,
-      paid_flags: paid, shop: anchors.some(function (t) { return /SHOP|COMMERCE|ECOM|PRODUCT|AFFILIATE|SHOWCASE/i.test(t); }) || !!(it.products && it.products.length),
+      paid_flags: paid, shop: anchors.some(function (t) { return /SHOP|COMMERCE|ECOM|PRODUCT|AFFILIATE|SHOWCASE/i.test(t); }) || !!(it.products && it.products.length) || +it.isECVideo === 1,
     };
   }
 

@@ -269,6 +269,7 @@ footer{margin-top:48px;color:var(--faint);font-size:12.5px;line-height:1.6}
         <dt>Brand vào comment</dt><dd>Tài khoản doanh nghiệp, hoặc tài khoản được tag trong caption, xuất hiện trong phần comment.</dd>
         <dt>Người xem đã nhận ra</dt><dd>Comment kiểu “lại quảng cáo”, “clip này nhận bao nhiêu vậy”.</dd>
         <dt>Xem nhiều, thờ ơ nhiều</dt><dd>View cao gấp ba mức thường mà tương tác, share chỉ lèo tèo.</dd>
+        <dt>Cờ quảng cáo của TikTok</dt><dd>Trong dữ liệu clip có cờ <code>isAd</code>. Thử trên kênh thật thì cờ này bật cả ở clip vài nghìn view, nhất là clip gắn TikTok Shop: clip đã được đưa vào quảng cáo, nhưng chưa nói được bao nhiêu view là tiền. Nên nó chỉ là một dấu hiệu, cần thêm dấu hiệu khác mới thành NGHI ADS.</dd>
         <dt>Dấu vết bán hàng</dt><dd>Tag tài khoản khác, gắn giỏ hàng, caption giảm giá hay link bio. Dấu hiệu yếu, chỉ cộng thêm, một mình không đủ để nghi.</dd>
       </dl>
       <p class="gnote">Clip nghi ads bị tách khỏi mức chuẩn, để tiền không làm đẹp giùm content. Biết chắc clip nào chạy ads hay chắc chắn organic? Mở kênh, bấm <b>Đánh dấu clip ads</b>.</p>
@@ -375,7 +376,7 @@ const queue=fn=>(chain=chain.then(fn).catch(e=>console.error(e)));
 
 /* ---------- nút ⚡ ---------- */
 const TEST_HOST=new URLSearchParams(location.search).get("testhost");
-fetch("bm.js").then(r=>r.text()).then(code=>{
+fetch("bm.js",{cache:"no-cache"}).then(r=>r.text()).then(code=>{
   const host=TEST_HOST?"^"+TEST_HOST.replace(/\./g,"\\.")+"$":"(^|\\.)tiktok\\.com$";
   code=code.split("%%APPURL%%").join(location.origin+location.pathname.replace(/[^/]*$/,"")).split("%%APP%%").join(location.origin).split("%%HOST%%").join(host.replace(/\\/g,"\\\\"));
   $("bm").href="javascript:"+encodeURIComponent(code.trim());
@@ -521,7 +522,7 @@ function renderDetail(){
     <tbody>${rows.length?"":`<tr><td colspan="8" class="empty">Không có clip nào trong khoảng ${esc(TTI.rangeLabel(range))}. Chọn khoảng rộng hơn, hoặc bấm “Cập nhật / soi tiếp” nếu kênh có clip mới.</td></tr>`}${rows.map(r=>`<tr class="r" onclick="window.open('${esc(r.url)}','_blank')"><td>${dfmt(r.ts)}</td>
       <td class="hk">${r.lite?'<span class="hint">chưa soi sâu</span>':esc((r.hook||r.caption||"").slice(0,90))}${r.kind==="NGHI ADS"?`<div class="why">${esc(r.ad_reasons.join(" · "))}</div>`:r.kind==="PAID"?`<div class="why">${esc(r.paid_src)}</div>`:""}</td><td class="num">${fmt(r.views)}</td>
       <td><span class="xm"><i style="width:${Math.max(3,Math.round(Math.sqrt(Math.min(r.x_med,mx)/mx)*60))}px"></i>${xm(r.x_med)}</span></td>
-      <td><span class="pill ${r.label==="NGHI ADS"?"NGHI":r.label}" title="${esc(r.kind==="NGHI ADS"?r.ad_reasons.join("\n"):r.paid_src||"")}">${r.label}</span>${r.label==="MỚI"&&r.ts?`<span class="hint due">có điểm ${dfmt(r.ts+TTI.NEW_DAYS*86400).slice(0,5)}</span>`:""}${r.er_high?'<span class="pill er">ER cao</span>':""}${r.shop?'<span class="pill shop">giỏ hàng</span>':""}</td>
+      <td><span class="pill ${r.label==="NGHI ADS"?"NGHI":r.label}" title="${esc(r.kind==="NGHI ADS"?r.ad_reasons.join("\n"):r.paid_src||"")}">${r.label}</span>${r.label==="MỚI"&&r.ts?`<span class="hint due">có điểm ${dfmt(r.ts+TTI.NEW_DAYS*86400).slice(0,5)}</span>`:""}${r.er_high?'<span class="pill er">ER cao</span>':""}${r.shop?'<span class="pill shop">giỏ hàng</span>':""}${r.is_ad_flag&&r.kind==="ORGANIC"?'<span class="pill shop" title="TikTok gắn cờ isAd: clip đã được đưa vào quảng cáo, chưa rõ nhiều hay ít">cờ ads</span>':""}</td>
       <td class="num hide-s">${pct(r.er)}</td><td class="num hide-s">${pct(r.share_r,2)}</td>
       <td class="num hide-s">${r.lite?'<span class="hint">–</span>':`${(r.comments||[]).length}<span class="hint">/${fmt(r.comments_count)}</span>`}</td></tr>`).join("")}</tbody></table></div>
   </section>`;

@@ -182,7 +182,9 @@
             sig.push([2, `view vẫn tăng ${Math.round(g * 100)}% (+${Math.round(gain).toLocaleString("vi-VN")}) trong ${Math.round(days)} ngày dù clip đã đăng ${v.growth.ageAt} ngày`]);
         }
       }
-      if (v.is_ad_flag) sig.push([2.5, "TikTok gắn cờ quảng cáo (isAd): clip từng được chạy ads hoặc bấm Quảng bá"]);
+      // Kiểm trên kênh thật: isAd bật cả ở clip vài nghìn view, nhất là clip gắn TikTok Shop → nghĩa là clip được đưa vào
+      // quảng cáo (thường là quảng cáo tự động cho clip bán hàng), không cho biết bao nhiêu view đến từ ads. Cần thêm dấu hiệu khác.
+      if (v.is_ad_flag) sig.push([1.5, "TikTok gắn cờ quảng cáo (isAd): clip đã được đưa vào ads, chưa rõ nhiều hay ít"]);
       if (!v.lite) {
         // 2. Tài khoản doanh nghiệp / tài khoản được tag vào comment
         const ment = new Set((v.mentions || []).map(x => String(x).toLowerCase()).filter(x => x && x !== me));
