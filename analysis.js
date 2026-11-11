@@ -12,6 +12,8 @@
   const DEEP_SMART = { top: 25, bottom: 25, newest: 15, spread: 20 };
 
   const median = xs => { if (!xs.length) return null; const a = [...xs].sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  // 0,12 → "1/8", 0,4 → "40%": dễ hình dung hơn phần trăm nhỏ
+  const frac = r => r > 0 && r < 0.34 ? "1/" + Math.round(1 / r) : Math.round(r * 100) + "%";
   const ratio = (a, b) => (typeof a === "number" && b ? a / b : null);
   const wkIdx = d => (d.getDay() + 6) % 7; // Thứ 2 = 0
 
@@ -184,20 +186,20 @@
       }
       // Kiểm trên kênh thật: isAd bật cả ở clip vài nghìn view, nhất là clip gắn TikTok Shop → nghĩa là clip được đưa vào
       // quảng cáo (thường là quảng cáo tự động cho clip bán hàng), không cho biết bao nhiêu view đến từ ads. Cần thêm dấu hiệu khác.
-      if (v.is_ad_flag) sig.push([1.5, "TikTok gắn cờ quảng cáo (isAd): clip đã được đưa vào ads, chưa rõ nhiều hay ít"]);
+      if (v.is_ad_flag) sig.push([1.5, "TikTok đánh dấu clip này đã được đưa vào quảng cáo (chưa rõ chạy nhiều hay ít)"]);
       if (!v.lite) {
         // 2. Tài khoản doanh nghiệp / tài khoản được tag vào comment
         const ment = new Set((v.mentions || []).map(x => String(x).toLowerCase()).filter(x => x && x !== me));
         const all = (v.comments || []).flatMap(c => [c, ...(c.reply_list || [])]);
         const bizBy = [...new Set(all.filter(c => c.by && c.by.toLowerCase() !== me && (c.biz || ment.has(c.by.toLowerCase()))).map(c => "@" + c.by))];
-        if (bizBy.length) sig.push([1.5, `tài khoản ${bizBy.slice(0, 3).join(", ")} (doanh nghiệp hoặc được tag) vào comment`]);
+        if (bizBy.length) sig.push([1.5, `tài khoản doanh nghiệp hoặc được tag (${bizBy.slice(0, 3).join(", ")}) vào comment`]);
         // 3. Người xem nhắc tới quảng cáo
         const talk = (v.comments || []).filter(c => AD_TALK.test(c.text)).length;
-        if (talk >= 2) sig.push([talk >= 4 ? 1.5 : 1, `${talk} comment nhắc tới quảng cáo / tài trợ`]);
+        if (talk >= 2) sig.push([talk >= 4 ? 1.5 : 1, `${talk} comment nhắc tới quảng cáo, tài trợ`]);
         // 4. View cao mà người xem thờ ơ
         if (rows.length >= 8 && v.views >= 3 * medAll && v.er != null) {
-          if (v.er <= 0.5 * medErAll && (v.cmt_r || 0) <= 0.5 * medCmtAll) sig.push([medShareAll && v.share_r != null && v.share_r <= 0.5 * medShareAll ? 2 : 1.5, `view ${(v.views / medAll).toFixed(1).replace(".", ",")}× mức thường nhưng tương tác/view chỉ bằng ${Math.round(v.er / (medErAll || 1) * 100)}% kênh`]);
-          else if (medShareAll && v.share_r != null && v.share_r <= 0.3 * medShareAll) sig.push([1, `view ${(v.views / medAll).toFixed(1).replace(".", ",")}× mức thường nhưng gần như không ai share`]);
+          if (v.er <= 0.5 * medErAll && (v.cmt_r || 0) <= 0.5 * medCmtAll) sig.push([medShareAll && v.share_r != null && v.share_r <= 0.5 * medShareAll ? 2 : 1.5, `view gấp ${(v.views / medAll).toFixed(1).replace(".", ",")} lần clip thường, nhưng tỉ lệ người xem có like, comment, share chỉ bằng ${frac(v.er / (medErAll || 1))} mức thường của kênh`]);
+          else if (medShareAll && v.share_r != null && v.share_r <= 0.3 * medShareAll) sig.push([1, `view gấp ${(v.views / medAll).toFixed(1).replace(".", ",")} lần clip thường, nhưng gần như không ai share`]);
         }
         // 5. Dấu vết thương mại (yếu, chỉ cộng thêm)
         if (ment.size) sig.push([0.5, `caption tag ${[...ment].slice(0, 3).map(x => "@" + x).join(", ")}`]);
