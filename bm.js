@@ -119,6 +119,28 @@
   }
 
   /* ---------- đọc danh sách clip của kênh trên trang hiện tại ---------- */
+  function metaFromScope(sc) {
+    var u = sc && sc['webapp.user-detail'];
+    if (u && u.userInfo && u.userInfo.user && u.userInfo.user.uniqueId) {
+      var i = u.userInfo, us = i.user, s0 = i.statsV2 || i.stats || {};
+      return { handle: us.uniqueId, nickname: us.nickname, bio: us.signature, verified: !!us.verified, private: !!us.privateAccount,
+        followers: +s0.followerCount || 0, hearts: +(s0.heartCount || s0.heart) || 0, videos: +s0.videoCount || 0, link: (us.bioLink && us.bioLink.link) || '' };
+    }
+    var it = sc && sc['webapp.video-detail'] && sc['webapp.video-detail'].itemInfo && sc['webapp.video-detail'].itemInfo.itemStruct;
+    if (it && it.author && it.author.uniqueId) {
+      var a = it.author, st = it.authorStatsV2 || it.authorStats || {};
+      return { handle: a.uniqueId, nickname: a.nickname, bio: a.signature, verified: !!a.verified, private: !!a.privateAccount,
+        followers: +st.followerCount || 0, hearts: +(st.heartCount || st.heart) || 0, videos: +st.videoCount || 0, link: '' };
+    }
+    return null;
+  }
+  async function fetchMeta(path) {
+    try {
+      var html = await fetch(path, { credentials: 'include' }).then(function (r) { return r.text(); });
+      var m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+      return m ? metaFromScope(JSON.parse(m[1]).__DEFAULT_SCOPE__) : null;
+    } catch (e) { return null; }
+  }
   function userMeta(D) {
     D = D || document;
     try {
@@ -178,17 +200,33 @@
       frame.style.cssText = 'position:fixed;left:-3000px;top:0;width:1200px;height:900px;opacity:0;pointer-events:none;border:0';
       document.body.appendChild(frame);
       await new Promise(function (r) { frame.onload = r; setTimeout(r, 20000); });
-      for (var w = 0; w < 10; w++) { try { D = frame.contentDocument; W = frame.contentWindow; meta = userMeta(D); } catch (e) { meta = null; } if (meta) break; await sleep(800); }
-      if (!meta) { frame.remove(); frame = null; D = document; W = window; }
+      try { D = frame.contentDocument; W = frame.contentWindow; } catch (e) { D = null; }
+      if (!D) { frame.remove(); frame = null; D = document; W = window; }
+      // Thông tin kênh: Safari hay trả khung trống chưa có dữ liệu → thử lần lượt nhiều nguồn
+      for (var w = 0; w < 6 && frame && !meta; w++) { meta = userMeta(D); if (!meta) await sleep(700); }
+      if (!meta) meta = await fetchMeta('/@' + owner);
+      if (!meta) meta = await fetchMeta(location.pathname);
+      if (!meta) meta = { handle: decodeURIComponent(owner), nickname: '', bio: '', followers: 0, hearts: 0, videos: 0, link: '' };
+      // chờ lưới clip trong khung ẩn hiện ra (Safari dựng chậm)
+      if (frame) for (var g = 0; g < 20 && !gridLinks(meta.handle.toLowerCase(), D).length; g++) await sleep(700);
     }
     if (!isVideo && !meta) { done('Hãy mở trang kênh (tiktok.com/@tenkenh) hoặc một clip rồi bấm ⚡.'); return; }
     var urls = [];
-    if (isVideo && !meta) {
-      urls = [location.origin + location.pathname];   // không mở được trang kênh → chỉ quét clip đang xem
+    if (isVideo && !frame) {
+      // trình duyệt không cho mở trang kênh ẩn → không đoán bừa, chỉ đường cho người dùng
+      var go = box.querySelector('#tti-go'); go.textContent = 'Mở trang kênh @' + (meta ? meta.handle : decodeURIComponent(owner || '')) + ' →';
+      go.onclick = function () { location.href = '/@' + (meta ? meta.handle : owner); };
+      done('Trình duyệt này không cho đọc kênh từ trang clip. Bấm nút bên dưới để mở trang kênh, rồi bấm ⚡ lần nữa.'); return;
     } else {
       if (meta.private) { if (frame) frame.remove(); done('Kênh để riêng tư, không đọc được.'); return; }
       var L = await listChannel(meta, D, W);
+      var wasFrame = !!frame;
       if (frame) { frame.remove(); frame = null; }
+      if (wasFrame && !L.links.length && !L.blocked) {
+        var go2 = box.querySelector('#tti-go'); go2.textContent = 'Mở trang kênh @' + meta.handle + ' →';
+        go2.onclick = function () { location.href = '/@' + meta.handle; };
+        done('Không đọc được danh sách clip từ trang này. Bấm nút bên dưới để mở trang kênh, rồi bấm ⚡ lần nữa.'); return;
+      }
       if (L.blocked) {
         send({ type: 'channel', meta: meta, links: [], blocked: true });
         done('TikTok không cho xem danh sách clip khi chưa đăng nhập. Đăng nhập TikTok trên trình duyệt này rồi tải lại trang kênh và bấm ⚡.'); return;
